@@ -1,0 +1,221 @@
+#!/bin/sh
+
+
+##Description: bash script for automatic amplicon ngs analysis
+
+#########################
+# The command line help #
+#########################
+display_help() {
+	echo "Usage: $0 [options...] -i <input.fastq>" >&2
+	echo ""
+	echo "Required arguments"
+	echo "    -i, --input    	input file in FASTQ format"
+	echo ""
+	echo "Optional arguments"
+	echo "    -q, --minqual   	minimum quality for FASTQ QC (default = 20)"
+	echo "    -l, --minlength 	minimum length for FASTQ QC (default = 100)"
+	echo "    -L, --relable  	relable fasta header (default = Uniq)"
+	echo "    -h, --help     	display this help message"
+	echo "    -d, --dependency  	display dependency status"
+	echo ""
+	exit 1
+}
+
+##########################
+# Dependency Information #
+##########################
+dependency_info() {
+##FastQ Quality Trimmer
+	stdout_fqt=$(which fastq_quality_trimmer)
+	if [ "$stdout_fqt" = "" ]; then
+	  echo "fastq_quality_trimmer [NOT installed]"
+	else
+	  echo "fastq_quality_trimmer [installed]"
+	fi
+
+##Usearch
+	stdout_usearch=$(which usearch)
+	if [ "$stdout_usearch" = "" ]; then
+	  echo "Usearch [NOT installed]"
+	else
+	  echo "Usearch [installed]"
+	fi
+}
+
+
+
+########################################
+# Command line argument implementation #
+########################################
+while :
+do
+	case "$1" in
+	  -i | --input)
+	      if [ $# -ne 0 ]; then
+	        input=$2
+	      fi
+	      shift 2
+	      ;;
+	  -q | --minqual)
+	      minqual=$2
+	      shift 2
+	      ;;
+	  -l | --minlength)
+	      minlength=$2
+	      shift 2
+	      ;;
+	  -L | --relable)
+	      relable=$2
+	      shift 2
+	      ;;
+	  -h | --help)
+	      display_help
+	      exit 0
+	      ;;
+	  -d | --dependency)
+	      dependency_info
+	      exit 0
+	      ;;
+	  --) # End of all options
+	      shift
+	      break
+	      ;;
+	  -*)
+	      echo "Error: Unknown option: $1" >&2
+	      exit 1
+	      ;;
+	   *) # No more options
+	      break
+	      ;;
+	esac
+done
+
+
+####################
+# Dependency Check #
+####################
+echo ""
+echo "=======DEPENDENCY CHECK========"
+echo "Start: $(date '+%d/%m/%Y %H:%M:%S')"
+
+##fastq_quality_trimmer
+stdout_fqt=$(which fastq_quality_trimmer)
+if [ "$stdout_fqt" = "" ]; then
+	echo "fastq_quality_trimmer was not installed, please install FastX Toolkit (hannonlab.cshl.edu/fastx_toolkit/)"
+	exit 1
+else
+	echo "fastq_quality_trimmer [installed]"
+	break
+fi
+
+##usearch
+stdout_usearch=$(which usearch)
+if [ "$stdout_usearch" = "" ]; then
+	echo "Usearch was not installed, please install Usearch (http://drive5.com/usearch)"
+	exit 1
+else
+	echo "usearch [installed]"
+fi
+
+echo "End: $(date '+%d/%m/%Y %H:%M:%S')"
+echo "--> End of Dependency Check <--"
+echo ""
+
+#####################
+# Argument warnings #
+#####################
+
+### Input file ###
+if [ "$input" = "" ]; then
+	echo "Input file not found, please specify input file"
+	echo "Type $0 -h/--help to see list of commands"
+	exit 1
+else
+	break
+fi
+
+### Minimum quality ###
+if [ "$minqual" = "" ]; then
+	mq=20
+	echo "Because you did not define it, minimum quality will be set to 20"
+	break
+else
+	mq=$minqual
+	break
+fi
+
+### Minimum length ###
+if [ "$minlength" = "" ]; then
+	ml=100
+	echo "Because you did not define it, minimum length will be set to 100"
+	break
+else
+	ml=$minlength
+	break
+fi
+
+### Relabel fasta file ###
+if  [ "$relable" = "" ]; then
+	rl="Uniq"
+	echo "Because you did not define it, fasta header will be relable to 'Unix'"
+	break
+else
+	rl=$relable
+	break
+fi
+
+#PARAMETER#
+#input=Sample_1
+#$minqual=20
+#minleng=100
+#output=$input"_trim"
+output=trim
+
+##QUALITY CONTROL##
+echo "======================================================="
+echo "====================QUALITY CONTROL===================="
+echo "======================================================="
+echo "Input file:" $input
+echo "Minimum quality:" $mq
+echo "Minimum length" $ml
+echo "Output file:" $output.fastq
+echo "-------------------------------------------------------"
+fastq_quality_trimmer -t $mq -l $ml -i $input -o $output.fastq
+echo "-------------------------------------------------------"
+echo ""
+echo "------------> Quality control succeed \m/ <------------"
+echo ""
+
+##REMOVE DUPLICATES##
+input2=$output
+output2=$output"_unique"
+echo "======================================================="
+echo "===================REMOVE DUPLICATES==================="
+echo "======================================================="
+echo Input file: $input2.fastq
+echo Output file: $output2.fastq
+echo Label: $rl
+echo ""
+echo "-------------------------------------------------------"
+usearch -fastx_uniques $input2.fastq -fastaout $output2.fasta -sizeout -relabel $rl
+echo "-------------------------------------------------------"
+echo ""
+echo "-----------> Remove duplicates succeed \m/ <-----------"
+echo ""
+
+##CLUSTERING##
+input3=$output2
+output3a=$output2"_otus"
+output3b=$output2"_out"
+echo "======================================================="
+echo "===========CLUSTERING AND CHIMERA FILTERING============"
+echo "======================================================="
+echo "Input file: $input3.fasta"
+echo "Output file: $output3a.fasta, $output3b.up"
+echo ""
+echo "-------------------------------------------------------"
+usearch -cluster_otus $input3.fasta -otus $output3a.fasta -uparseout $output3b.up -relabel OTU -minsize 2
+echo "-------------------------------------------------------"
+echo ""
+echo "---> Clustering and chimera filtering succeed \m/ <----"
